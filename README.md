@@ -85,14 +85,6 @@ Use this to always run the `latest` tagged release without maintaining a local c
 }
 ```
 
-To pin to a specific release tag instead of `latest`, replace `@latest` with the tag name (e.g. `@v1.2.0`).
-
-To refresh the cached package after a new tag is published, run:
-
-```bash
-uv cache clean kortex-mcp
-```
-
 ## Tools
 
 ### `list_collections`
@@ -136,12 +128,25 @@ Claude calls `retrieve` with the appropriate `collection_id` and surfaces the mo
 
 Claude calls `retrieve` again with `collections: ["<id>:v1"]`.
 
-## Running standalone (for testing)
+## Testing with MCP Inspector
+
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) wraps the server process and opens a local web UI where you can call tools interactively — no Claude Desktop needed.
+
+**Local clone:**
 
 ```bash
-cd kortex/src/kortex_mcp
 KORTEX_API_KEY=kx_live_... KORTEX_API_URL=http://localhost:8000 \
-  uv run python -m mcps.kortex_mcp.server
+  npx @modelcontextprotocol/inspector \
+  uv run --project /absolute/path/to/kortex/src/kortex_mcp \
+  python -m mcps.kortex_mcp.server
 ```
 
-The server speaks the MCP stdio protocol — you can pipe requests to it manually or use the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) for interactive testing.
+**From GitHub:**
+
+```bash
+KORTEX_API_KEY=kx_live_... KORTEX_API_URL=http://localhost:8000 \
+  npx @modelcontextprotocol/inspector \
+  uvx --from git+https://github.com/ibkortex/kortex_mcp@v0.0.1 kortex-mcp
+```
+
+Open `http://localhost:5173` in your browser. Use the **Tools** tab to call `list_collections` and `retrieve` and inspect the raw responses.

@@ -1,0 +1,87 @@
+# Eclipse
+/**/.jazz5
+/**/.jazzShed
+/**/.metadata
+/**/.project
+/**/.settings/
+/**/.externalToolBuilders/
+/**/target/
+/**/.classpath
+/**/.factorypath
+/**/WEB-INF/lib/
+/**/.tern-project
+/**/.springBeans
+/bin/
+
+# Visual Studio
+.vs/
+*.csproj.user
+*.suo
+*.user
+*.tmp
+*.log
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/*
+# IDES
+.vscode
+.code-workspace
+
+# IntelliJ
+.idea/
+*.iml
+out/
+target/
+
+# General
+*.swp
+*.swo
+*.tmp
+*.log
+*.cache
+*.DS_Store
+*.thumbs.db
+*.ehthumbs.db
+
+# Python
+.env
+.venv
+**/.venv
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.log
+.env-dev
+
+# Specific
+.deepeval
+.deepteam
+
+# env switchs
+.env.*

@@ -31,7 +31,7 @@ import sys
 from typing import Optional
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # ── configuration ─────────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ if not _API_KEY:
 
 # ── MCP server ────────────────────────────────────────────────────────────────
 
-mcp = FastMCP(
+mcp = MCPServer(
     "Kortex",
     instructions=(
         "You have access to the Kortex enterprise data plane. "
