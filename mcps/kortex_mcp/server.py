@@ -33,15 +33,6 @@ from typing import Optional
 import httpx
 from mcp.server.mcpserver import MCPServer
 
-# ── configuration ─────────────────────────────────────────────────────────────
-
-_BASE_URL = os.environ.get("KORTEX_API_URL", "http://localhost:8000").rstrip("/")
-_API_KEY = os.environ.get("KORTEX_API_KEY", "")
-
-if not _API_KEY:
-    print("[kortex-mcp] KORTEX_API_KEY is not set — exiting", file=sys.stderr)
-    sys.exit(1)
-
 # ── MCP server ────────────────────────────────────────────────────────────────
 
 mcp = MCPServer(
@@ -61,9 +52,14 @@ _TIMEOUT = 30.0
 
 
 def _client() -> httpx.Client:
+    base_url = os.environ.get("KORTEX_API_URL", "http://localhost:8000").rstrip("/")
+    api_key = os.environ.get("KORTEX_API_KEY", "")
+    if not api_key:
+        print("[kortex-mcp] KORTEX_API_KEY is not set — exiting", file=sys.stderr)
+        sys.exit(1)
     return httpx.Client(
-        base_url=_BASE_URL,
-        headers={"x-api-key": _API_KEY},
+        base_url=base_url,
+        headers={"x-api-key": api_key},
         timeout=_TIMEOUT,
     )
 
