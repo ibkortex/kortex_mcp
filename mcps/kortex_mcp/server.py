@@ -8,17 +8,23 @@ Exposes two tools backed by the Kortex backend data plane API:
   retrieve          — semantic search across accessible collections via Bedrock
 
 Configuration (environment variables):
-  KORTEX_API_URL   Base URL of the Kortex backend  (default: http://localhost:8000)
+  KORTEX_API_URL   Base URL of the Kortex backend  (default: http://localhost:8080)
   KORTEX_API_KEY   API key in kx_live_... format    (required)
 
-Claude Desktop config  (~/.config/Claude/claude_desktop_config.json):
+Personal keys are generated in Kortex → Integraciones → Servidor MCP and act on
+behalf of the user who created them.
+
+Claude Desktop config  (claude_desktop_config.json):
   {
     "mcpServers": {
       "kortex": {
-        "command": "uv",
-        "args": ["run", "--project", "/abs/path/to/kortex_mcp", "python", "-m", "mcps.kortex_mcp.server"],
+        "command": "uvx",
+        "args": [
+          "--from", "https://github.com/ibkortex/kortex_mcp/archive/refs/tags/v0.1.0.zip",
+          "kortex-mcp"
+        ],
         "env": {
-          "KORTEX_API_URL": "http://localhost:8000",
+          "KORTEX_API_URL": "https://<kortex_data_plane_url>",
           "KORTEX_API_KEY": "kx_live_<id>_<secret>"
         }
       }
@@ -28,6 +34,7 @@ Claude Desktop config  (~/.config/Claude/claude_desktop_config.json):
 
 import os
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from typing import Optional
 
 import httpx
@@ -49,17 +56,25 @@ mcp = MCPServer(
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 _TIMEOUT = 30.0
+_DEFAULT_API_URL = "http://localhost:8080"
+
+try:
+    __version__ = version("kortex-mcp")
+except PackageNotFoundError:  # running from a source tree that is not installed
+    __version__ = "dev"
+
+_USER_AGENT = f"kortex-mcp/{__version__}"
 
 
 def _client() -> httpx.Client:
-    base_url = os.environ.get("KORTEX_API_URL", "http://localhost:8000").rstrip("/")
+    # Read lazily on every call so the tools always use the current environment.
+    base_url = (os.environ.get("KORTEX_API_URL") or _DEFAULT_API_URL).rstrip("/")
     api_key = os.environ.get("KORTEX_API_KEY", "")
     if not api_key:
-        print("[kortex-mcp] KORTEX_API_KEY is not set — exiting", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError("KORTEX_API_KEY is not set")
     return httpx.Client(
         base_url=base_url,
-        headers={"x-api-key": api_key},
+        headers={"x-api-key": api_key, "User-Agent": _USER_AGENT},
         timeout=_TIMEOUT,
     )
 
@@ -132,5 +147,25 @@ def retrieve(
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+
+def main() -> None:
+    """Console-script entry point: validate the configuration, then serve over stdio."""
+    # stdout carries the MCP protocol on stdio — diagnostics must go to stderr.
+    if not os.environ.get("KORTEX_API_KEY"):
+        print(
+            "[kortex-mcp] KORTEX_API_KEY is not set — exiting.\n"
+            "[kortex-mcp] Generate a personal key in Kortex → Integraciones → Servidor MCP "
+            "and pass it in the \"env\" block of your MCP client config.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not os.environ.get("KORTEX_API_URL"):
+        print(
+            f"[kortex-mcp] KORTEX_API_URL is not set — defaulting to {_DEFAULT_API_URL}",
+            file=sys.stderr,
+        )
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()
