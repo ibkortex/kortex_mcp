@@ -1,6 +1,9 @@
-"""Servidor MCP (stdio). Las herramientas dependen del perfil con que se arranca:
-- consulta: lo que ve un usuario de la ingesta (su documentación + conocimiento transversal de la KB), como «Preguntar a Kortex».
-- admin: lo anterior (si hay login de ingesta) y la administración de la KB (lectura, decisiones auditables, consolidación, fuentes).
+"""Herramientas de conocimiento de Kortex que el servidor MCP oficial (mcps/kortex_mcp/server.py) añade a list_collections y
+retrieve. Dependen de la sesión de `kortex-mcp login` (perfil leído del token, sin red):
+- sin sesión: solo `estado_sesion`, que explica cómo hacer login;
+- consulta (7): lo que ve el usuario en la ingesta (su documentación + conocimiento transversal de la KB);
+- admin (grupo kb-admin): lo anterior y la administración de la KB (lectura, decisiones auditables, consolidación, fuentes).
+La autorización real de cada llamada la hace la API; el perfil solo decide qué herramientas se enseñan.
 Nada se escribe en stdout salvo el protocolo; los errores llegan a Claude como texto en español."""
 import functools
 import sys
@@ -10,9 +13,10 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from . import config
 from . import ingesta as I
 from .kb import KB
-from .sesion import ErrorKortex, Sesion
+from .sesion import ErrorKortex, Sesion, perfil_actual
 
 LECTURA = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 ESCRITURA = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=True)
@@ -43,8 +47,7 @@ class Contexto:
 
     def __init__(self, perfil, fabrica=None):
         self.perfil = perfil
-        from . import credenciales
-        self.fabrica = fabrica or (lambda cuenta: Sesion(credenciales.perfil_de_cuenta(perfil, cuenta), cuenta))
+        self.fabrica = fabrica or Sesion                          # Sesion(cuenta): «ingesta» (/knowledge/v1) o «kb» (/kb/v1)
         self._s, self._kb = {}, None
 
     def sesion(self, cuenta):
@@ -68,7 +71,7 @@ def _seguro(f):
     def envuelta(*a, **k):
         try:
             return f(*a, **k)
-        except ErrorKortex as e:                   # ToolError: el SDK pasa el mensaje a Claude (cualquier otra excepción la oculta)
+        except (ErrorKortex, config.ConfigIncompleta) as e:   # ToolError: el SDK pasa el mensaje a Claude (cualquier otra excepción la oculta)
             raise ToolError(str(e)) from None
         except Exception as e:  # noqa: BLE001 — nada de trazas ni secretos hacia el cliente; la traza va a stderr
             traceback.print_exc(file=sys.stderr)
@@ -76,11 +79,47 @@ def _seguro(f):
     return envuelta
 
 
+SIN_SESION = ("No hay sesión de Kortex en este equipo (o ha caducado: dura 30 días desde el login). Para usar las herramientas de "
+              "conocimiento, la persona debe ejecutar en SU terminal «kortex-mcp login» (usuario, contraseña y el código de 6 dígitos de su "
+              "aplicación de autenticación) y después reiniciar este servidor MCP. No pidas ni escribas contraseñas ni códigos en el chat. "
+              "list_collections y retrieve no dependen del login: usan la clave personal KORTEX_API_KEY.")
+
+
 def crear(perfil: str, fabrica=None) -> MCPServer:
+    """Un servidor solo con las herramientas de conocimiento del perfil (pruebas); el MCP oficial usa registrar()."""
+    if perfil not in ("consulta", "admin"):
+        raise ValueError("Perfil desconocido: usa consulta o admin")
+    return registrar(MCPServer(name="kortex", instructions=INSTRUCCIONES[perfil]), perfil, fabrica)
+
+
+def registrar_sin_sesion(srv: MCPServer) -> MCPServer:
+    """Sin sesión: una herramienta que dice cómo hacer login (y si falta configuración, cuál)."""
+    @srv.tool(name="estado_sesion", annotations=LECTURA, structured_output=False,
+              description="Estado de la sesión de conocimiento de Kortex y cómo hacer login para tener sus herramientas (consulta de la "
+                          "documentación y, para el equipo de Kortex, administración de la KB). Llámala si el usuario pregunta por su "
+                          "documentación de Kortex y no ves esas herramientas.")
+    def estado_sesion() -> str:
+        try:
+            cfg = config.cargar()
+        except config.ConfigIncompleta as e:
+            return str(e)
+        if cfg.faltan():
+            return (f"Las herramientas de conocimiento no están configuradas (entorno «{cfg.entorno}»): falta {', '.join(cfg.faltan())}. "
+                    f"Pide al equipo de Kortex el config.json y déjalo en {config.fichero_config()}, o define esas variables. "
+                    "Después: «kortex-mcp login» en la terminal y reiniciar el servidor MCP.")
+        perfil = perfil_actual()
+        if perfil:
+            return (f"Ya hay sesión de Kortex (perfil {perfil}, entorno «{cfg.entorno}»), pero este servidor arrancó antes del login: "
+                    "reinícialo (o abre una sesión nueva del cliente) para ver las herramientas.")
+        return SIN_SESION + f" Entorno: «{cfg.entorno}»."
+    return srv
+
+
+def registrar(srv: MCPServer, perfil: str, fabrica=None) -> MCPServer:
+    """Añade a `srv` las herramientas y prompts de conocimiento del perfil («consulta» o «admin»)."""
     if perfil not in ("consulta", "admin"):
         raise ValueError("Perfil desconocido: usa consulta o admin")
     c = Contexto(perfil, fabrica)
-    srv = MCPServer(name="kortex", instructions=INSTRUCCIONES[perfil])
 
     def herramienta(anot=LECTURA, nombre=None):
         def deco(f):
@@ -90,13 +129,9 @@ def crear(perfil: str, fabrica=None) -> MCPServer:
     # ================================================================== consulta (los dos perfiles)
     @herramienta()
     def quien_soy() -> str:
-        """Qué MCP es (perfil), con qué usuarios ha entrado, y sus equipos y roles."""
-        from . import credenciales
-        cuentas = {"ingesta": credenciales.usuario(credenciales.perfil_de_cuenta(c.perfil, "ingesta"), "ingesta")}
-        if c.perfil == "admin":                                      # 24/11/2026, login único: la KB entra con la misma sesión
-            from . import config as K
-            cuentas["kb"] = (cuentas["ingesta"] + " (la misma sesión)") if K.LOGIN_UNICO else credenciales.usuario(c.perfil, "kb")
-        return I.quien_soy(c.ing, c.perfil, cuentas)
+        """Qué MCP es (perfil), con qué usuario ha entrado y en qué entorno, y sus equipos y roles."""
+        s = c.ing
+        return I.quien_soy(s, c.perfil, {"kortex": f"{s.usuario() or '—'} · entorno {s.cfg.entorno}"})
 
     @herramienta()
     def equipos_y_carpetas(equipo: str | None = None) -> str:
@@ -437,10 +472,10 @@ def crear(perfil: str, fabrica=None) -> MCPServer:
                 "aprobado, rechazado) y su evolución; salud según los agentes; qué ha cambiado y quién ha decidido qué; tres siguientes pasos "
                 "recomendados. Sin inventar cifras: solo las que devuelven las herramientas.")
 
-    @srv.prompt(name="contrastar_kb", description="Contrasta un tema en la KB con su contexto y, si hay login de ingesta, con la documentación.")
+    @srv.prompt(name="contrastar_kb", description="Contrasta un tema en la KB con su contexto y con la documentación que ve el usuario.")
     def contrastar_kb(tema: str) -> str:
         return (f"Tema: «{tema}». 1. buscar_entidades y entidad de las más relevantes; contexto(entidad=…). 2. por_que de las relaciones "
-                "clave. 3. Si hay login de ingesta, consultar(pregunta=…) para ver lo que dice la documentación. 4. Señala lo que la KB "
+                "clave. 3. consultar(pregunta=…) para ver lo que dice la documentación. 4. Señala lo que la KB "
                 "tiene sin respaldo suficiente, lo que falta y las contradicciones; propón decisiones sin ejecutarlas.")
 
     return srv

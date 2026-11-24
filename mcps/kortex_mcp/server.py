@@ -1,18 +1,31 @@
 """
-Kortex data plane MCP server for Claude Desktop.
+Kortex MCP server (data plane + knowledge).
 
-Exposes two tools backed by the Kortex backend data plane API:
+Always exposes the two data plane tools, backed by the Kortex backend data plane API:
 
   list_collections  — discover all collections accessible to the configured API key,
                       including their description and available version labels
   retrieve          — semantic search across accessible collections via Bedrock
 
-Configuration (environment variables):
-  KORTEX_API_URL   Base URL of the Kortex backend  (default: http://localhost:8080)
-  KORTEX_API_KEY   API key in kx_live_... format    (required)
+and, depending on the knowledge login (`kortex-mcp login`: Cognito SRP + TOTP, client
+mcp-local, tokens encrypted with DPAPI), the knowledge tools of mcps/kortex_mcp/conocimiento:
+
+  no session        — estado_sesion (explains how to log in)
+  any user          — 7 query tools over the user's ingested documentation (+ KB context)
+  group kb-admin    — those 7 plus the KB administration tools
+
+Configuration (environment variables, or %USERPROFILE%\\.kortex\\config.json):
+  KORTEX_API_URL            Base URL of the Kortex backend  (default: http://localhost:8080)
+  KORTEX_API_KEY            API key in kx_live_... format    (list_collections, retrieve)
+  KORTEX_COGNITO_REGION     knowledge login: region of the official Cognito pool
+  KORTEX_COGNITO_POOL_ID    knowledge login: official user pool id
+  KORTEX_COGNITO_CLIENT_ID  knowledge login: public app client mcp-local (no secret)
 
 Personal keys are generated in Kortex → Integraciones → Servidor MCP and act on
 behalf of the user who created them.
+
+Transports: stdio (default) or `kortex-mcp serve --http-local [--port 8765]` (127.0.0.1 only,
+local Bearer token). See cli.py and README.md.
 
 Claude Desktop config  (claude_desktop_config.json):
   {
@@ -40,18 +53,21 @@ from typing import Optional
 import httpx
 from mcp.server.mcpserver import MCPServer
 
+from .conocimiento import config as _config_conocimiento
+
 # ── MCP server ────────────────────────────────────────────────────────────────
 
-mcp = MCPServer(
-    "Kortex",
-    instructions=(
-        "You have access to the Kortex enterprise data plane. "
-        "Call list_collections first to discover what collections are available and which "
-        "version labels you can query. Use retrieve to perform semantic search — it queries "
-        "Amazon Bedrock Knowledge Bases and returns the most relevant passages from the "
-        "collections in scope."
-    ),
+INSTRUCTIONS = (
+    "You have access to the Kortex enterprise data plane. "
+    "Call list_collections first to discover what collections are available and which "
+    "version labels you can query. Use retrieve to perform semantic search — it queries "
+    "Amazon Bedrock Knowledge Bases and returns the most relevant passages from the "
+    "collections in scope."
 )
+
+# Data plane only (the two tools below), kept for compatibility. The console script serves
+# crear_servidor(), which adds the knowledge tools when there is a login session.
+mcp = MCPServer("Kortex", instructions=INSTRUCTIONS)
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
@@ -68,7 +84,7 @@ _USER_AGENT = f"kortex-mcp/{__version__}"
 
 def _client() -> httpx.Client:
     # Read lazily on every call so the tools always use the current environment.
-    base_url = (os.environ.get("KORTEX_API_URL") or _DEFAULT_API_URL).rstrip("/")
+    base_url = (os.environ.get("KORTEX_API_URL") or _config_conocimiento.api_url_configurada() or _DEFAULT_API_URL).rstrip("/")
     api_key = os.environ.get("KORTEX_API_KEY", "")
     if not api_key:
         raise RuntimeError("KORTEX_API_KEY is not set")
@@ -145,26 +161,47 @@ def retrieve(
         return resp.json()
 
 
+# ── server with the knowledge tools ───────────────────────────────────────────
+
+_AUTO = object()
+
+
+def crear_servidor(perfil=_AUTO, fabrica=None) -> MCPServer:
+    """
+    The served MCP: list_collections and retrieve always; then, by knowledge session profile
+    (read from the stored token, no network): None → estado_sesion; "consulta" → query tools;
+    "admin" (Cognito group kb-admin) → query + KB administration tools.
+    """
+    from .conocimiento import servidor as conocimiento
+    from .conocimiento.sesion import perfil_actual
+
+    if perfil is _AUTO:
+        perfil = perfil_actual()
+    instrucciones = INSTRUCTIONS
+    if perfil is None:
+        instrucciones += (" Kortex knowledge tools (the user's ingested documentation and the KB) need a login: if the user asks "
+                          "for them, call estado_sesion.")
+    else:
+        instrucciones += " " + conocimiento.INSTRUCCIONES[perfil]
+    srv = MCPServer("Kortex", instructions=instrucciones)
+    srv.tool()(list_collections)
+    srv.tool()(retrieve)
+    if perfil is None:
+        conocimiento.registrar_sin_sesion(srv)
+    else:
+        conocimiento.registrar(srv, perfil, fabrica)
+    return srv
+
+
 # ── entry point ───────────────────────────────────────────────────────────────
 
 
-def main() -> None:
-    """Console-script entry point: validate the configuration, then serve over stdio."""
-    # stdout carries the MCP protocol on stdio — diagnostics must go to stderr.
-    if not os.environ.get("KORTEX_API_KEY"):
-        print(
-            "[kortex-mcp] KORTEX_API_KEY is not set — exiting.\n"
-            "[kortex-mcp] Generate a personal key in Kortex → Integraciones → Servidor MCP "
-            "and pass it in the \"env\" block of your MCP client config.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    if not os.environ.get("KORTEX_API_URL"):
-        print(
-            f"[kortex-mcp] KORTEX_API_URL is not set — defaulting to {_DEFAULT_API_URL}",
-            file=sys.stderr,
-        )
-    mcp.run()
+def main(argv: Optional[list[str]] = None) -> None:
+    """Console-script entry point (`kortex-mcp`). Without arguments, serve over stdio as before."""
+    # stdout carries the MCP protocol on stdio — diagnostics go to stderr (see cli.py).
+    from .cli import main as cli_main
+
+    sys.exit(cli_main(argv))
 
 
 if __name__ == "__main__":

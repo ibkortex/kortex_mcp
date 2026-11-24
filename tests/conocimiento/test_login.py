@@ -1,93 +1,149 @@
-"""24/11/2026: el login único solo pide la segunda entrada (web de la KB) al equipo Kortex; la persona usuaria no la ve."""
-from kortex_mcp import __main__ as cli
+"""La línea de órdenes: login (la contraseña no se guarda ni se imprime), estado, logout, arranque y registro en el cliente."""
+import json
+
+import pytest
+from conftest import CognitoFalso, cifrar, descifrar
+
+from mcps.kortex_mcp import cli
+from mcps.kortex_mcp.conocimiento import credenciales
+from mcps.kortex_mcp.conocimiento import sesion as S
 
 
-def _simular(monkeypatch, capsys, admin, resultado_ingesta=0):
-    llamadas = []
-    monkeypatch.setattr(cli, "_login", lambda perfil, solo_kb=False: llamadas.append((perfil, solo_kb)) or resultado_ingesta)
-    monkeypatch.setattr(cli, "_es_admin", lambda: admin)
-    monkeypatch.setattr(cli.credenciales, "perfil_efectivo", lambda: "admin" if admin else "consulta")   # nunca la sesión real del equipo
-    rc = cli._login_unico()
-    return rc, llamadas, capsys.readouterr().out
+@pytest.fixture
+def dpapi_falso(monkeypatch):
+    monkeypatch.setattr(credenciales, "dpapi_cifrar", cifrar)
+    monkeypatch.setattr(credenciales, "dpapi_descifrar", descifrar)
 
 
-def test_usuario_final_solo_ve_su_usuario_de_ingesta(monkeypatch, capsys):
-    rc, llamadas, salida = _simular(monkeypatch, capsys, admin=False)
-    assert rc == 0 and llamadas == [("consulta", False)]
-    assert "KB" not in salida and "equipo Kortex" not in salida
+def _login(monkeypatch, capsys, respuestas, cognito):
+    entradas = iter(respuestas)
+    monkeypatch.setattr("builtins.input", lambda *_: next(entradas))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *_: cognito.clave_buena)
+    monkeypatch.setattr(S, "Cognito", lambda: cognito)
+    rc = cli.main(["login"])
+    return rc, capsys.readouterr().out
 
 
-def test_admin_tambien_entra_en_la_kb_sin_login_unico(monkeypatch, capsys):
-    monkeypatch.setattr(cli.config, "LOGIN_UNICO", False)
-    rc, llamadas, salida = _simular(monkeypatch, capsys, admin=True)
-    assert rc == 0 and llamadas == [("consulta", False), ("admin", True)]
-    assert "web de la KB" in salida
+def test_login_guarda_solo_la_sesion_cifrada(home, dpapi_falso, monkeypatch, capsys):
+    cog = CognitoFalso()
+    rc, salida = _login(monkeypatch, capsys, ["ana@ejemplo.test"], cog)
+    assert rc == 0 and cog.logins == [("srp", "ana@ejemplo.test")]
+    assert "✓ ana@ejemplo.test entra" in salida and "las de consulta" in salida and "Clave-Buena-1" not in salida
+    ficheros = [f for f in home.rglob("*") if f.is_file()]
+    assert [f.name for f in ficheros] == ["sesion.dpapi"]
+    assert b"Clave-Buena-1" not in ficheros[0].read_bytes() and S.perfil_actual() == "consulta"
 
 
-def test_login_unico_admin_por_grupo_sin_segunda_entrada(monkeypatch, capsys):
-    monkeypatch.setattr(cli.config, "LOGIN_UNICO", True)
-    rc, llamadas, salida = _simular(monkeypatch, capsys, admin=True)
-    assert rc == 0 and llamadas == [("consulta", False)] and "kb-admin" in salida
+def test_login_admin_por_grupo(home, dpapi_falso, monkeypatch, capsys):
+    cog = CognitoFalso()
+    cog.grupos = ["kb-admin"]
+    rc, salida = _login(monkeypatch, capsys, ["ana@ejemplo.test"], cog)
+    assert rc == 0 and "administración de la KB" in salida and S.perfil_actual() == "admin"
 
 
-def test_si_falla_la_ingesta_no_pregunta_nada_mas(monkeypatch, capsys):
-    rc, llamadas, _ = _simular(monkeypatch, capsys, admin=True, resultado_ingesta=1)
-    assert rc == 1 and llamadas == [("consulta", False)]
+def test_login_sugiere_el_usuario_anterior(home, dpapi_falso, monkeypatch, capsys):
+    _login(monkeypatch, capsys, ["ana@ejemplo.test"], CognitoFalso())
+    cog = CognitoFalso()
+    rc, _ = _login(monkeypatch, capsys, [""], cog)                    # Intro: el mismo usuario
+    assert rc == 0 and cog.logins == [("srp", "ana@ejemplo.test")]
 
 
-def test_es_admin_sin_respuesta_es_usuario_final(monkeypatch):
-    class Rota:
-        def __init__(self, *a, **k):
-            pass
-
-        def pedir(self, *a, **k):
-            raise RuntimeError("sin red")
-    monkeypatch.setattr(cli, "Sesion", Rota)
-    assert cli._es_admin() is False
+def test_login_sin_configuracion_no_pregunta_nada(sin_config, monkeypatch, capsys):
+    monkeypatch.setattr("builtins.input", lambda *_: pytest.fail("no debe preguntar"))
+    assert cli.main(["login"]) == 2
+    assert "KORTEX_COGNITO_POOL_ID" in capsys.readouterr().out
 
 
-def test_perfil_por_grupo_y_kb_con_la_misma_sesion(home, monkeypatch):
-    """Login único: el perfil sale del grupo del token de la ingesta y la sesión de la KB es el mismo fichero que la de la ingesta."""
-    import base64
-    import json
-    from conftest import cifrar
-    from kortex_mcp import config, credenciales
-    from kortex_mcp.sesion import Sesion
-    monkeypatch.setattr(config, "LOGIN_UNICO", True)
-    monkeypatch.setattr(credenciales, "dpapi_descifrar", lambda b: b)
-
-    def token(grupos):
-        cuerpo = base64.urlsafe_b64encode(json.dumps({"cognito:groups": grupos, "exp": 9999999999}).encode()).decode().rstrip("=")
-        return f"h.{cuerpo}.f"
-    credenciales.guardar("consulta", "ingesta", "ana@ejemplo.test", cifrar=cifrar)
-    f = config.carpeta() / "sesion_consulta_ingesta.json"
-    f.write_bytes(json.dumps({"acceso": token([])}).encode())
-    assert credenciales.perfil_efectivo() == "consulta"
-    f.write_bytes(json.dumps({"acceso": token(["kb-admin"])}).encode())
-    assert credenciales.perfil_efectivo() == "admin"
-    assert Sesion("admin", "kb")._fichero == f
-    assert Sesion("admin", "kb").cfg["pool"] == config.INGESTA["pool"]
+def test_login_con_contrasena_mala(home, dpapi_falso, monkeypatch, capsys):
+    cog = CognitoFalso()
+    cog.clave_buena = "otra"
+    entradas = iter(["ana@ejemplo.test"])
+    monkeypatch.setattr("builtins.input", lambda *_: next(entradas))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *_: "mala")
+    monkeypatch.setattr(S, "Cognito", lambda: cog)
+    assert cli.main(["login"]) == 1
+    assert "✗ Usuario o contraseña incorrectos" in capsys.readouterr().out and S.leer_tokens() is None
 
 
-def test_registrar_escritorio_solo_toca_kortex(home, tmp_path):
-    import json
+def test_estado_y_logout(home, dpapi_falso, monkeypatch, capsys):
+    cog = CognitoFalso()
+    _login(monkeypatch, capsys, ["ana@ejemplo.test"], cog)
+    assert cli.main(["estado"]) == 0
+    salida = capsys.readouterr().out
+    assert "Entorno: predeterminado" in salida and "/knowledge/v1" in salida and "perfil consulta" in salida
+    assert "acceso" not in salida and "R-1" not in salida
+    assert cli.main(["logout"]) == 0 and cog.revocados == ["R-1"] and S.leer_tokens() is None
+
+
+def test_entorno_por_linea_de_ordenes(sin_config, monkeypatch, capsys):
+    sin_config.mkdir(parents=True, exist_ok=True)
+    (sin_config / "config.json").write_text(json.dumps({"entornos": {
+        "dev": {"api_url": "https://dev.ejemplo.test", "cognito_pool_id": "r-1_D", "cognito_client_id": "c"},
+        "prod": {"api_url": "https://prod.ejemplo.test", "cognito_pool_id": "r-1_P", "cognito_client_id": "c"}}}), encoding="utf-8")
+    assert cli.main(["estado", "--entorno", "prod"]) == 0
+    assert "https://prod.ejemplo.test/kb/v1" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------- arranque
+class _SrvFalso:
+    def __init__(self):
+        self.servido = None
+
+    def run(self):
+        self.servido = "stdio"
+
+
+@pytest.fixture
+def arranque(monkeypatch):
+    from mcps.kortex_mcp import server
+    hecho = {}
+
+    def crear(perfil):
+        hecho["perfil"], hecho["srv"] = perfil, _SrvFalso()
+        return hecho["srv"]
+    monkeypatch.setattr(server, "crear_servidor", crear)
+    return hecho
+
+
+def test_sin_clave_ni_conocimiento_sale_como_antes(sin_config, arranque, capsys):
+    assert cli.main([]) == 1
+    assert "KORTEX_API_KEY is not set — exiting." in capsys.readouterr().err and not arranque
+
+
+def test_con_clave_sirve_por_stdio_sin_sesion(sin_config, arranque, monkeypatch, capsys):
+    monkeypatch.setenv("KORTEX_API_KEY", "kx_live_prueba_x")
+    assert cli.main([]) == 0
+    assert arranque["perfil"] is None and arranque["srv"].servido == "stdio"
+    assert "defaulting to http://localhost:8080" in capsys.readouterr().err
+
+
+def test_solo_con_login_configurado_tambien_sirve(home, arranque, capsys):
+    assert cli.main(["serve"]) == 0 and arranque["srv"].servido == "stdio"
+    err = capsys.readouterr().err
+    assert "KORTEX_API_KEY no está definida" in err and "Sin sesión de conocimiento" in err
+
+
+def test_http_local_usa_el_puerto_pedido(home, arranque, monkeypatch):
+    from mcps.kortex_mcp.conocimiento import http_local
+    llamado = {}
+    monkeypatch.setattr(http_local, "servir", lambda srv, puerto: llamado.update(srv=srv, puerto=puerto))
+    assert cli.main(["serve", "--http-local", "--port", "8799"]) == 0
+    assert llamado == {"srv": arranque["srv"], "puerto": 8799} and arranque["srv"].servido is None
+
+
+# ---------------------------------------------------------------------- registro en el cliente (modo HTTP local)
+def test_registro(sin_config, capsys):
+    assert cli.main(["registro"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("claude mcp add --transport http kortex http://localhost:8765/mcp --scope user --header \"Authorization: Bearer ")
+
+
+def test_registrar_escritorio_solo_toca_kortex(sin_config, tmp_path):
     f = tmp_path / ".claude.json"
-    f.write_text(json.dumps({"otra": 1, "mcpServers": {"kortex-poc": {"url": "x"}, "ajeno": {"url": "y"}}}), encoding="utf-8")
+    f.write_text(json.dumps({"otra": 1, "mcpServers": {"ajeno": {"url": "y"}}}), encoding="utf-8")
     assert cli._registrar_escritorio(fichero=str(f)) == 0
     d = json.loads(f.read_text(encoding="utf-8"))
-    assert d["otra"] == 1 and "kortex-poc" not in d["mcpServers"] and d["mcpServers"]["ajeno"] == {"url": "y"}
+    assert d["otra"] == 1 and d["mcpServers"]["ajeno"] == {"url": "y"}
     k = d["mcpServers"]["kortex"]
     assert k["type"] == "http" and k["url"] == "http://localhost:8765/mcp" and k["headers"]["Authorization"].startswith("Bearer ")
     assert (tmp_path / ".claude.json.antes-kortex").exists()
-
-
-def test_login_unico_ignora_logins_antiguos_del_perfil_admin(home, monkeypatch):
-    from conftest import cifrar
-    from kortex_mcp import config, credenciales
-    from kortex_mcp.sesion import Sesion
-    monkeypatch.setattr(config, "LOGIN_UNICO", True)
-    credenciales.guardar("consulta", "ingesta", "ana@ejemplo.test", cifrar=cifrar)
-    credenciales.guardar("admin", "ingesta", "generico@ejemplo.test", cifrar=cifrar)
-    credenciales.guardar("admin", "kb", "admin", cifrar=cifrar)
-    assert credenciales.perfil_de_cuenta("admin", "ingesta") == "consulta"
-    assert Sesion(credenciales.perfil_de_cuenta("admin", "kb"), "kb")._fichero.name == "sesion_consulta_ingesta.json"
