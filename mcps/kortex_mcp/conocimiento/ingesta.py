@@ -110,8 +110,10 @@ def documentos(s, equipo=None, carpeta=None, texto=None, estado=None, limite=50,
 
 
 # ---------------------------------------------------------------------- la consulta (POST /consulta)
-def consultar(s, pregunta, colecciones=None, k=None, kb=True) -> str:
-    """POST /consulta: fragmentos de los documentos que la persona puede leer + lo que la KB sabe de lo preguntado (transversal)."""
+def consultar(s, pregunta, colecciones=None, k=None, kb=True, notas=True) -> str:
+    """POST /consulta: fragmentos de los documentos que la persona puede leer + lo que la KB sabe de lo preguntado (transversal). Lo
+    transversal llega como hechos y, si la política autoriza fragmentos de otros equipos, como notas que Kortex ya ha redactado (nunca
+    el texto original); notas=False las evita (son la única parte de la consulta que usa el modelo de Kortex)."""
     cuerpo = {"pregunta": pregunta}
     if colecciones:
         cuerpo["colecciones"] = list(colecciones)
@@ -119,6 +121,8 @@ def consultar(s, pregunta, colecciones=None, k=None, kb=True) -> str:
         cuerpo["k"] = int(k)
     if kb is False:
         cuerpo["kb"] = False
+    if notas is False:
+        cuerpo["notas"] = False
     r = s.pedir("POST", "consulta", cuerpo=cuerpo, ruta_nueva=True)
     frs = r.get("fragmentos") or []
     out = [f"Pregunta: {r.get('pregunta') or pregunta}",
@@ -149,11 +153,19 @@ def consultar(s, pregunta, colecciones=None, k=None, kb=True) -> str:
     kbd = r.get("kb") or {}
     ents, rels, trans = kbd.get("entidades") or [], kbd.get("relaciones") or [], kbd.get("transversal") or []
     temas = kbd.get("temas_transversales") or []
-    if ents or rels or trans or temas:
+    notas = [n for n in kbd.get("notas_transversales") or [] if (n.get("nota") if isinstance(n, dict) else n)]
+    if ents or rels or trans or temas or notas:
         out.append("\n## Conocimiento transversal de la KB (a modo de información; no es documentación de tu equipo:"
                    " parafrasea, no lo cites como si fuera un documento)")
     if temas:
         out.append("Temas transversales: " + " · ".join(_r(t if isinstance(t, str) else (t.get("nombre") or t.get("tema") or t), 80) for t in temas))
+    usos = set()
+    if notas:                                                   # fragmentos de otros equipos, ya redactados por Kortex (sin origen)
+        out.append("Notas de otras fuentes de Kortex (redactadas por Kortex; sin documento ni equipo de origen):")
+        for n in notas:
+            out.append("- [nota] " + _r(n.get("nota") if isinstance(n, dict) else n, 400))
+            if isinstance(n, dict) and n.get("uso"):
+                usos.add(str(n["uso"]))
     for e in ents:
         extra = " · ".join(x for x in (", ".join(e.get("ambitos") or []), "HPUM: " + "; ".join(e["procesos_hpum"][:3]) if e.get("procesos_hpum") else "") if x)
         out.append(f"- {e.get('nombre')} [{e.get('tipo')}] ({e.get('id')})" + (f" · {extra}" if extra else ""))
@@ -163,7 +175,6 @@ def consultar(s, pregunta, colecciones=None, k=None, kb=True) -> str:
         cita = (x.get("citas") or [{}])[0]
         out.append(f"- {x.get('origen')} ─ {x.get('tipo')} ▸ {x.get('destino')}" + (f" · confianza {x['confianza']}" if x.get("confianza") else "")
                    + (f"\n    «{_r(cita.get('cita'), 240)}» — {cita.get('documento')}" if cita.get("cita") else ""))
-    usos = set()
     for t in trans:
         if t.get("uso"):
             usos.add(str(t["uso"]))
@@ -180,7 +191,7 @@ def consultar(s, pregunta, colecciones=None, k=None, kb=True) -> str:
         if "SIN_COINCIDENCIAS_CLARAS" in str(txt):
             txt = "SIN_COINCIDENCIAS_CLARAS: nada coincide claramente con la pregunta; lo de arriba es lo más cercano, úsalo con cautela."
         out.append(f"Aviso: {txt}")
-    if not frs and not pan and not (ents or rels or trans):
+    if not frs and not pan and not (ents or rels or trans or notas):
         out.append("No hay nada relevante en lo que puedes consultar.")
     return "\n".join(out)
 

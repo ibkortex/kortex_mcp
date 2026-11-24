@@ -31,6 +31,22 @@ def test_consultar_cuerpo_y_salida(sesion):
     assert "Temas transversales: Certificación · Contratistas" in out and "SIN_COINCIDENCIAS_CLARAS" in out
 
 
+def test_consultar_notas_transversales_y_sin_notas(sesion):
+    uso = "Conocimiento de contexto: parafrasear, no citable ni atribuible a un documento"
+    r = {"pregunta": "¿Cómo se certifica una OT?", "documentos_consultados": 2, "fragmentos": [], "coste_usd": 0.0011,
+         "kb": {"entidades": [], "relaciones": [], "transversal": [], "temas_transversales": [],
+                "notas_transversales": [{"nota": "En otros equipos la certificación pasa por una doble validación.", "procedencia": "Kortex KB",
+                                         "uso": uso}, {"nota": "", "uso": uso}]}}
+    s, http, _ = sesion("ingesta", rutas={("POST", "/consulta"): Resp(200, r)})
+    out = I.consultar(s, "¿Cómo se certifica una OT?")
+    assert "notas" not in http.llamadas[-1]["json"]                                      # por defecto, el servidor decide (con notas)
+    assert "Conocimiento transversal de la KB" in out and "Notas de otras fuentes de Kortex" in out
+    assert "- [nota] En otros equipos la certificación pasa por una doble validación." in out and out.count("[nota]") == 1
+    assert f"Uso de lo transversal: {uso}" in out and "No hay nada relevante" not in out
+    I.consultar(s, "¿Cómo se certifica una OT?", notas=False)
+    assert http.llamadas[-1]["json"] == {"pregunta": "¿Cómo se certifica una OT?", "notas": False}
+
+
 def test_consultar_sin_kb_y_panorama(sesion):
     r = {"pregunta": "¿Qué información tienes?", "documentos_consultados": 3, "fragmentos": [], "kb": {},
          "panorama": {"texto": "Tienes 3 documentos de Obras.", "documentos": [{"doc_id": "doc_a", "documento": "Manual SIGMA.docx", "carpeta": "Obras"}]}}

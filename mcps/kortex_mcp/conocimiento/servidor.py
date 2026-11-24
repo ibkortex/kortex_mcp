@@ -145,13 +145,15 @@ def registrar(srv: MCPServer, perfil: str, fabrica=None) -> MCPServer:
         return I.documentos(c.ing, equipo, carpeta, texto, estado, limite, cursor)
 
     @herramienta()
-    def consultar(pregunta: str, colecciones: list[str] | None = None, k: int | None = None, kb: bool = True) -> str:
-        """Pregunta a Kortex SIN gastar modelo: devuelve los fragmentos relevantes de la documentación que el usuario puede leer
-        (RAG, numerados [n] con doc_id) y lo que la KB sabe de lo preguntado (conocimiento transversal, a modo de información).
-        colecciones: limitar a carpetas (collection_id); k: nº de fragmentos; kb=false: solo documentación.
+    def consultar(pregunta: str, colecciones: list[str] | None = None, k: int | None = None, kb: bool = True, notas: bool = True) -> str:
+        """Pregunta a Kortex: devuelve los fragmentos relevantes de la documentación que el usuario puede leer (RAG, numerados [n]
+        con doc_id) y lo que la KB sabe de lo preguntado (conocimiento transversal, a modo de información): hechos, relaciones y, si
+        la política lo autoriza, notas que Kortex ha redactado a partir de fragmentos de otros equipos (sin su texto ni su origen).
+        colecciones: limitar a carpetas (collection_id); k: nº de fragmentos; kb=false: solo documentación; notas=false: sin notas
+        (son lo único que usa el modelo de Kortex; el resto solo cuesta el embedding).
         Es UNA búsqueda: si los fragmentos no contienen la respuesta (portadas, índices, otro tema), vuelve a llamar con otras palabras
         del contenido que buscas (sinónimos, términos del documento) en vez de concluir que no está; o lee la parte con leer_documento."""
-        return I.consultar(c.ing, pregunta, colecciones, k, kb)
+        return I.consultar(c.ing, pregunta, colecciones, k, kb, notas)
 
     @herramienta()
     def leer_documento(doc_id: str, desde: int = 0, max: int | None = None) -> str:  # noqa: A002

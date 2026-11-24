@@ -63,7 +63,8 @@ seguido de `quien_soy` con su usuario y su equipo, y «LISTO». Errores:
 
 **Paso 4 · Cierre.** Dile que abra una **sesión nueva** de Claude Code (en esta no aparecerán las herramientas) y que pruebe, por
 ejemplo: «Con kortex, ¿qué documentos tengo y de qué tratan?». Explícale en dos líneas:
-- `consultar` busca en su documentación y añade lo que sabe la KB como contexto (no gasta modelo);
+- `consultar` busca en su documentación y añade lo que sabe la KB como contexto, incluidas notas de otros equipos ya redactadas
+  por Kortex (sin el texto original ni de dónde vienen);
 - la sesión dura 30 días desde el login: cuando caduque, la herramienta lo dirá; que repita el paso 2 en su terminal con un código
   nuevo (no hace falta reiniciar el servidor si ya tenía las herramientas).
 
