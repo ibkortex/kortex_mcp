@@ -1,4 +1,4 @@
-"""Herramientas de consulta sobre la API de la ingesta (lo mismo que ve la persona en «Preguntar a Kortex», con sus permisos).
+"""Herramientas de consulta sobre la API de conocimiento (lo mismo que ve la persona en la web de ingesta, con sus permisos).
 
 Las salidas son texto compacto para Claude: numeradas, con el doc_id para seguir tirando del hilo y sin repetir campos vacíos."""
 import base64
@@ -47,7 +47,7 @@ def quien_soy(s, perfil=None, cuentas=None) -> str:
     if perfil:
         lineas.append(f"MCP: kortex · {'todas las herramientas (admin de la KB)' if perfil == 'admin' else 'herramientas de consulta'} (perfil {perfil})")
         for cuenta, usuario in (cuentas or {}).items():
-            lineas.append(f"Sesión {'de la ingesta' if cuenta == 'ingesta' else 'de la KB'}: {usuario or '—'}")
+            lineas.append(f"Sesión: {usuario or '—'}")
     nombre = me.get("label") or me.get("identity")
     email = me.get("email") or me.get("username")
     lineas.append(f"Usuario en la web: {nombre}" + (f" <{email}>" if email and email != nombre else "")
@@ -109,7 +109,7 @@ def documentos(s, equipo=None, carpeta=None, texto=None, estado=None, limite=50,
     return "\n".join(out)
 
 
-# ---------------------------------------------------------------------- la consulta (rutas del fork A)
+# ---------------------------------------------------------------------- la consulta (POST /consulta)
 def consultar(s, pregunta, colecciones=None, k=None, kb=True) -> str:
     """POST /consulta: fragmentos de los documentos que la persona puede leer + lo que la KB sabe de lo preguntado (transversal)."""
     cuerpo = {"pregunta": pregunta}

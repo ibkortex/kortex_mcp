@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))          # raíz del repositorio (paquete mcps)
+
+API = "https://api.ejemplo.test"                                       # entorno ficticio de las pruebas
+POOL = "xx-region-1_PRUEBA"
+CLIENTE = "cliente-prueba"
 
 
 def jwt(exp, **claims):
@@ -79,33 +83,53 @@ class CognitoFalso:
         self.logins, self.refrescos = [], []
         self.refresco_falla = False
         self.clave_buena = "Clave-Buena-1"
+        self.grupos = []
+        self.revocados = []
 
     def _t(self, via, usuario="equipo2@ejemplo.test"):
-        return {"acceso": jwt(self.reloj() + 3600, username=usuario), "id": jwt(self.reloj() + 3600, email=usuario),
+        g = {"cognito:groups": self.grupos} if self.grupos else {}
+        return {"acceso": jwt(self.reloj() + 3600, username=usuario, **g), "id": jwt(self.reloj() + 3600, email=usuario),
                 "refresco": "R-" + str(len(self.logins)), "via": via}
 
     def srp(self, usuario, clave, cfg, pedir_codigo=None):
-        from kortex_mcp.sesion import ErrorKortex
+        from mcps.kortex_mcp.conocimiento.sesion import ErrorKortex
         self.logins.append(("srp", usuario))
         if clave != self.clave_buena:
             raise ErrorKortex("Usuario o contraseña incorrectos.")
         return self._t("srp", usuario)
 
     def refrescar_srp(self, refresco, cfg):
-        from kortex_mcp.sesion import SesionCaducada
+        from mcps.kortex_mcp.conocimiento.sesion import SesionCaducada
         self.refrescos.append(refresco)
         if self.refresco_falla:
             raise SesionCaducada("caducado")
         return {**self._t("srp"), "refresco": refresco}
 
+    def revocar(self, refresco, cfg):
+        self.revocados.append(refresco)
+
+
+VARIABLES = ("KORTEX_API_URL", "KORTEX_API_KEY", "KORTEX_COGNITO_REGION", "KORTEX_COGNITO_POOL_ID", "KORTEX_COGNITO_CLIENT_ID",
+             "KORTEX_ENTORNO", "KORTEX_CONFIG", "KORTEX_KNOWLEDGE_PREFIX", "KORTEX_KB_PREFIX", "KORTEX_KB_CAMPANA", "KORTEX_GRUPO_ADMIN")
+
 
 @pytest.fixture
-def home(tmp_path, monkeypatch):
+def sin_config(tmp_path, monkeypatch):
+    """Carpeta de Kortex vacía y ninguna variable KORTEX_* del puesto: nada de la configuración real se cuela."""
     monkeypatch.setenv("KORTEX_HOME", str(tmp_path / "kortex"))
     monkeypatch.setenv("KORTEX_DESCARGAS", str(tmp_path / "descargas"))
-    for v in ("KORTEX_USUARIO_INGESTA", "KORTEX_CLAVE_INGESTA", "KORTEX_USUARIO_KB", "KORTEX_CLAVE_KB", "KORTEX_KB_AUTH"):
+    for v in VARIABLES:
         monkeypatch.delenv(v, raising=False)
     return tmp_path / "kortex"
+
+
+@pytest.fixture
+def home(sin_config, monkeypatch):
+    """Entorno ficticio configurado por variables (sin config.json): datos en <home>/predeterminado."""
+    monkeypatch.setenv("KORTEX_API_URL", API)
+    monkeypatch.setenv("KORTEX_COGNITO_POOL_ID", POOL)
+    monkeypatch.setenv("KORTEX_COGNITO_CLIENT_ID", CLIENTE)
+    return sin_config
 
 
 class Reloj:
@@ -124,14 +148,13 @@ def reloj():
 @pytest.fixture
 def sesion(home, reloj):
     """Fábrica de sesiones con HTTP y Cognito falsos, ya con login hecho."""
-    from kortex_mcp import credenciales
-    from kortex_mcp.sesion import Sesion
+    from mcps.kortex_mcp.conocimiento.sesion import Sesion
 
-    def hacer(cuenta="ingesta", rutas=None, perfil="consulta", login=True):
+    def hacer(cuenta="ingesta", rutas=None, login=True, grupos=()):
         http, cog = HTTP(rutas), CognitoFalso(reloj)
-        s = Sesion(perfil, cuenta, http=http, cognito=cog, cifrar=cifrar, descifrar=descifrar, reloj=reloj, dormir=lambda x: None)
+        cog.grupos = list(grupos)
+        s = Sesion(cuenta, http=http, cognito=cog, cifrar=cifrar, descifrar=descifrar, reloj=reloj, dormir=lambda x: None)
         if login:
             s.entrar("equipo2@ejemplo.test" if cuenta == "ingesta" else "admin", cog.clave_buena)
-            credenciales.guardar(perfil, cuenta, "equipo2@ejemplo.test" if cuenta == "ingesta" else "admin")
         return s, http, cog
     return hacer

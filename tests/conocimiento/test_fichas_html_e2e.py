@@ -6,7 +6,7 @@ import json
 import pytest
 from datos_fichas import servida
 
-from kortex_mcp import fichas_revision as FR
+from mcps.kortex_mcp.conocimiento import fichas_revision as FR
 
 sync_api = pytest.importorskip("playwright.sync_api")
 ACRED = "Persona de Prueba verificada por correo corporativo"

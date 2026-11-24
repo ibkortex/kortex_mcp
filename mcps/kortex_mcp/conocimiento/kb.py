@@ -48,7 +48,7 @@ def clase_de(oid: str) -> str:
 class KB:
     def __init__(self, sesion, campana=None, http=None, reloj=time.time):
         self.s = sesion
-        self.cid = campana or config.KB["campana"]
+        self.cid = campana or config.cargar().campana
         self.http = http or requests.Session()
         self.reloj = reloj
         self._D = None          # (huella, servida)

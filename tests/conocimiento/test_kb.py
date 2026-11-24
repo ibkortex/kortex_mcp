@@ -3,8 +3,8 @@ import json
 import pytest
 from conftest import Resp
 
-from kortex_mcp.kb import KB
-from kortex_mcp.sesion import ErrorKortex
+from mcps.kortex_mcp.conocimiento.kb import KB
+from mcps.kortex_mcp.conocimiento.sesion import ErrorKortex
 
 SERVIDA = {
     "campana_id": "KORTEX", "estado": "PROCESADA", "fecha": "2026-11-19T11:00:00Z",
@@ -34,7 +34,7 @@ def rutas_kb(huella="h1", servida=SERVIDA, extra=None):
 @pytest.fixture
 def kb(sesion, reloj):
     def hacer(extra=None, huella="h1"):
-        s, http, _ = sesion("kb", perfil="admin", rutas=rutas_kb(huella, extra=extra))
+        s, http, _ = sesion("kb", rutas=rutas_kb(huella, extra=extra))
         return KB(s, http=http, reloj=reloj), http
     return hacer
 
@@ -123,7 +123,7 @@ def test_servida_se_descarga_una_vez_por_huella(kb, home):
     k.buscar_entidades("sigma")
     k.entidad("E1")
     assert sum(1 for c in http.llamadas if c["url"].endswith("servida.json")) == 1
-    assert (home / "cache" / "servida_KORTEX_h1.json").exists()
+    assert (home / "predeterminado" / "cache" / "servida_KORTEX_h1.json").exists()      # carpeta del entorno activo
     k2 = KB(k.s, http=http)                                             # otro proceso: tira de la caché en disco
     k2.servida()
     assert sum(1 for c in http.llamadas if c["url"].endswith("servida.json")) == 1
@@ -146,7 +146,7 @@ def test_por_que_relacion(kb):
 def test_lo_nuevo_desde_compara_fotos(sesion, reloj, home):
     nueva = json.loads(json.dumps(SERVIDA))
     nueva["entidades"].append({"entidad_id": "E9", "nombre": "Nueva", "tipo_id": "SISTEMA"})
-    s, http, _ = sesion("kb", perfil="admin", rutas=rutas_kb("h1"))
+    s, http, _ = sesion("kb", rutas=rutas_kb("h1"))
     k = KB(s, http=http, reloj=reloj)
     k.servida()
     k.marcar_revision()

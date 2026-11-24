@@ -6,9 +6,9 @@ import pytest
 from conftest import Resp
 from datos_fichas import servida
 
-from kortex_mcp import fichas_revision as FR
-from kortex_mcp.kb import KB
-from kortex_mcp.sesion import ErrorKortex
+from mcps.kortex_mcp.conocimiento import fichas_revision as FR
+from mcps.kortex_mcp.conocimiento.kb import KB
+from mcps.kortex_mcp.conocimiento.sesion import ErrorKortex
 
 
 def ix_de(D=None, rev=None):
@@ -444,7 +444,7 @@ def _operaciones_falsas(ll):
 @pytest.fixture
 def kbf(sesion, reloj):
     def hacer(D=None):
-        s, http, _ = sesion("kb", perfil="admin", rutas=rutas(D or servida()))
+        s, http, _ = sesion("kb", rutas=rutas(D or servida()))
         return KB(s, http=http, reloj=reloj), http
     return hacer
 

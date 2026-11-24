@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from test_kb import SERVIDA
 
-from kortex_mcp import ficha as F
+from mcps.kortex_mcp.conocimiento import ficha as F
 
 AQUI = Path(__file__).resolve().parent
 REAL = Path(os.environ.get("KORTEX_SERVIDA_PRUEBA", "servida_de_prueba_no_incluida.json"))

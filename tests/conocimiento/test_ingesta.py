@@ -1,8 +1,8 @@
 import pytest
 from conftest import Resp
 
-from kortex_mcp import ingesta as I
-from kortex_mcp.sesion import ErrorKortex, RutaNoDisponible
+from mcps.kortex_mcp.conocimiento import ingesta as I
+from mcps.kortex_mcp.conocimiento.sesion import ErrorKortex, RutaNoDisponible
 
 CONSULTA = {
     "pregunta": "¿Cómo se certifica una OT?", "documentos_consultados": 12, "coste_usd": 0.0003,

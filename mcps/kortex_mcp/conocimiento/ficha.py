@@ -1,9 +1,10 @@
-"""Ficha de relaciones de un elemento de la KB: el MISMO HTML autocontenido que descarga la web (kbweb/web/ficha.js).
+"""Ficha de relaciones de un elemento de la KB: el MISMO HTML autocontenido que descarga la web de la KB (su ficha.js, copiada en
+recursos/ficha.js; si cambia en la web, hay que volver a copiarla).
 
 Por qué un port a Python y no llamar a node: el MCP tiene que funcionar en cualquier puesto con solo el .venv (quien revisa no tiene por qué
-tener node). Para no divergir: el CSS y el script del filtro se LEEN de ficha.js en cada uso (si cambian en la web, cambian aquí), y
+tener node). Para no divergir: el CSS y el script del filtro se LEEN de ficha.js en cada uso, y
 la lógica es una traducción línea a línea de construirFicha/htmlFicha, con una prueba que compara el HTML con el que genera node a
-partir de la misma KB servida (tests/test_ficha.py; se salta si no hay node). Diferencia conocida: el orden alfabético usa una
+partir de la misma KB servida (tests/conocimiento/test_ficha.py; se salta si no hay node). Diferencia conocida: el orden alfabético usa una
 aproximación de la colación «es» de ICU (puntuación, cifras, letras; acentos y mayúsculas como desempate; ñ después de n)."""
 import datetime as dt
 import os
@@ -11,7 +12,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-FICHA_JS = Path(os.environ.get("KORTEX_FICHA_JS") or Path(__file__).resolve().parents[2] / "kbweb" / "web" / "ficha.js")
+FICHA_JS = Path(os.environ.get("KORTEX_FICHA_JS") or Path(__file__).resolve().parent / "recursos" / "ficha.js")   # copia de la de la web
 
 FAMILIA = {"PROC": "Procesos y capacidades", "TECNO": "Tecnología y sistemas", "OBJ": "Objetos y datos", "PERSONA": "Personas y roles", "INI": "Iniciativas",
            "ORG": "Organización", "EXT": "Entidades externas", "NOR": "Normativa y requisitos", "KPI": "Indicadores", "ACTIVO": "Activos físicos",

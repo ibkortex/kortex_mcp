@@ -1,12 +1,14 @@
-"""Sesión con cada web (Cognito) y llamadas HTTP con reintentos, renovación del token y errores en español.
+"""Sesión de Kortex (Cognito) y llamadas HTTP con reintentos, renovación del token y errores en español.
 
-23/11/2026: los dos pools tienen MFA OBLIGATORIO (aplicación de autenticación, TOTP). Las dos cuentas (ingesta y KB) entran igual:
-SRP (USER_SRP_AUTH) + el código de 6 dígitos (reto SOFTWARE_TOKEN_MFA). La API de la KB acepta el ámbito de SRP
-(«aws.cognito.signin.user.admin», kbweb/iac/api.tf), así que ya no se raspa la pantalla de login de Cognito.
-Con MFA no se puede volver a entrar en silencio: la contraseña NO se guarda (solo el usuario) y la sesión vive del token de refresco
-(30 días desde el login). Al caducar, la herramienta pide repetir el login (`py mcp\\kortex.py login`) con un código nuevo.
+Un solo login para todo: SRP (USER_SRP_AUTH) + el código de 6 dígitos de la aplicación de autenticación (reto SOFTWARE_TOKEN_MFA)
+contra el pool OFICIAL de Kortex con el cliente público «mcp-local» (sin secreto). El mismo token de acceso vale para la API de
+conocimiento (${KORTEX_API_URL}/knowledge/v1) y para la de la KB (${KORTEX_API_URL}/kb/v1).
+Con MFA no se puede volver a entrar en silencio: la contraseña NO se guarda y la sesión vive del token de refresco (30 días desde el
+login, lo fija el cliente de Cognito). Al caducar, la herramienta pide repetir el login (`kortex-mcp login`) con un código nuevo.
 Si la cuenta aún no tiene dado de alta el TOTP (reto MFA_SETUP), se pide entrar antes en la web, donde Cognito enseña el código QR.
-Los tokens se guardan cifrados con DPAPI en %USERPROFILE%\\.kortex\\sesion_<perfil>_<cuenta>.json; nunca se imprimen."""
+Los tokens se guardan cifrados con DPAPI en %USERPROFILE%\\.kortex\\<entorno>\\sesion.dpapi; nunca se imprimen.
+El perfil (consulta o admin) sale del grupo de Cognito del token (por defecto «kb-admin»): solo decide qué herramientas se
+registran; quien autoriza de verdad cada llamada es la API."""
 import base64
 import json
 import re
@@ -16,10 +18,11 @@ import requests
 
 from . import config, credenciales
 
-REFRESCO_S = 30 * 86400               # 24/11/2026: token de refresco del cliente del MCP, 30 días (iac/identity.tf «mcp»)
+REFRESCO_S = 30 * 86400               # vida del token de refresco del cliente «mcp-local» (30 días)
 TIMEOUT = (10, 70)                    # conexión, lectura (la API Gateway corta a los 30 s; la KB puede tardar en la primera lectura)
 REINTENTOS = 3
 ESPERA = (0.6, 1.8, 4.0)
+FICHERO_SESION = "sesion.dpapi"
 
 
 class ErrorKortex(Exception):
@@ -37,10 +40,10 @@ class RutaNoDisponible(ErrorKortex):
     pass
 
 
-ORDEN_LOGIN = "py mcp\\kortex.py login"          # desde la carpeta del MCP (la raíz del ZIP o el repositorio)
+ORDEN_LOGIN = "kortex-mcp login"
 CODIGO = re.compile(r"\d{6}")
-ALTA_TOTP = ("Tu cuenta todavía no tiene dada de alta la aplicación de autenticación. Entra primero en la web con este usuario: "
-             "Cognito te enseñará un código QR para darla de alta. Después repite el login aquí.")
+ALTA_TOTP = ("Tu cuenta todavía no tiene dada de alta la aplicación de autenticación. Entra primero en la web de Kortex con este "
+             "usuario: Cognito te enseñará un código QR para darla de alta. Después repite el login aquí.")
 
 
 def _orden_login(perfil=None):
@@ -65,25 +68,25 @@ def reclamaciones(jwt: str) -> dict:
 
 # ====================================================================== cómo se obtienen los tokens
 class Cognito:
-    """SRP + TOTP contra el pool de cada web. Se sustituye en las pruebas por una falsa."""
+    """SRP + TOTP contra el pool oficial (cliente público, llamadas sin firmar). Se sustituye en las pruebas por una falsa."""
 
     def __init__(self, idp=None):
         if idp is not None:
-            self._idp = lambda: idp
+            self._idp = lambda region=None: idp
 
-    def _idp(self):
+    def _idp(self, region=None):
         import boto3
         from botocore import UNSIGNED
         from botocore.config import Config
-        return boto3.client("cognito-idp", region_name=config.REGION, config=Config(signature_version=UNSIGNED, retries={"max_attempts": 3}))
+        return boto3.client("cognito-idp", region_name=region, config=Config(signature_version=UNSIGNED, retries={"max_attempts": 3}))
 
     def srp(self, usuario, clave, cfg, pedir_codigo=None) -> dict:
         """pedir_codigo(): devuelve el código de 6 dígitos; se llama solo si Cognito lo pide (siempre, con MFA obligatorio)."""
         from pycognito.aws_srp import AWSSRP, ForceChangePasswordException
         from pycognito.exceptions import SMSMFAChallengeException, SoftwareTokenMFAChallengeException
-        idp = self._idp()
+        idp = self._idp(cfg.region)
         try:
-            r = AWSSRP(username=usuario, password=clave, pool_id=cfg["pool"], client_id=cfg["cliente"], client=idp).authenticate_user()
+            r = AWSSRP(username=usuario, password=clave, pool_id=cfg.pool, client_id=cfg.cliente, client=idp).authenticate_user()
         except ForceChangePasswordException:
             raise ErrorKortex("La cuenta tiene que cambiar la contraseña temporal: entra una vez en la web (allí también das de alta la "
                               "aplicación de autenticación) y vuelve a hacer login aquí.") from None
@@ -109,7 +112,7 @@ class Cognito:
             raise ErrorKortex("El código son 6 dígitos de tu aplicación de autenticación.")
         nombre = (reto.get("ChallengeParameters") or {}).get("USER_ID_FOR_SRP") or usuario
         try:
-            return idp.respond_to_auth_challenge(ClientId=cfg["cliente"], ChallengeName="SOFTWARE_TOKEN_MFA", Session=reto.get("Session"),
+            return idp.respond_to_auth_challenge(ClientId=cfg.cliente, ChallengeName="SOFTWARE_TOKEN_MFA", Session=reto.get("Session"),
                                                  ChallengeResponses={"USERNAME": nombre, "SOFTWARE_TOKEN_MFA_CODE": codigo})
         except Exception as e:  # noqa: BLE001
             cod = getattr(e, "response", {}).get("Error", {}).get("Code") if hasattr(e, "response") else type(e).__name__
@@ -119,11 +122,15 @@ class Cognito:
 
     def refrescar_srp(self, refresco, cfg) -> dict:
         try:
-            a = self._idp().initiate_auth(AuthFlow="REFRESH_TOKEN_AUTH", ClientId=cfg["cliente"],
+            a = self._idp(cfg.region).initiate_auth(AuthFlow="REFRESH_TOKEN_AUTH", ClientId=cfg.cliente,
                                           AuthParameters={"REFRESH_TOKEN": refresco})["AuthenticationResult"]
         except Exception as e:  # noqa: BLE001
             raise SesionCaducada(_motivo_cognito(e)) from None
         return {"acceso": a["AccessToken"], "id": a.get("IdToken"), "refresco": a.get("RefreshToken") or refresco, "via": "srp"}
+
+    def revocar(self, refresco, cfg) -> None:
+        """Revoca el token de refresco (logout). El cliente «mcp-local» tiene la revocación activada; sin secreto, no se firma."""
+        self._idp(cfg.region).revoke_token(Token=refresco, ClientId=cfg.cliente)
 
 
 def _motivo_cognito(e) -> str:
@@ -134,13 +141,85 @@ def _motivo_cognito(e) -> str:
             "TooManyRequestsException": "Cognito pide esperar: demasiados intentos seguidos."}.get(cod, f"Cognito ha respondido con un error ({cod}).")
 
 
-# ====================================================================== sesión de una cuenta (ingesta o kb) dentro de un perfil
+# ====================================================================== tokens guardados (uno por entorno)
+def fichero_sesion():
+    return config.carpeta() / FICHERO_SESION
+
+
+def leer_tokens(descifrar=None):
+    """Tokens guardados del entorno activo (o None si no hay, no se pueden descifrar o están dañados)."""
+    f = fichero_sesion()
+    if not f.exists():
+        return None
+    try:
+        return json.loads((descifrar or credenciales.dpapi_descifrar)(f.read_bytes()).decode("utf-8"))
+    except Exception:  # noqa: BLE001 — otra cuenta de Windows, fuera de Windows o fichero dañado: hay que repetir el login
+        return None
+
+
+def renovable_hasta(t) -> int:
+    return int((t or {}).get("entrada") or 0) + REFRESCO_S
+
+
+def vigente(t, ahora=None) -> bool:
+    """Hay sesión usable: token de acceso en vigor o token de refresco dentro de sus 30 días."""
+    if not t or not t.get("acceso"):
+        return False
+    ahora = time.time() if ahora is None else ahora
+    return caducidad(t["acceso"]) > ahora or bool(t.get("refresco") and t.get("via") == "srp" and renovable_hasta(t) > ahora)
+
+
+def grupos(t) -> set:
+    """Grupos de Cognito del usuario (claim «cognito:groups» del token de acceso o, si no, del de identidad)."""
+    t = t or {}
+    return set(reclamaciones(t.get("acceso") or "").get("cognito:groups") or reclamaciones(t.get("id") or "").get("cognito:groups") or [])
+
+
+def usuario_de(t) -> str | None:
+    t = t or {}
+    c = reclamaciones(t.get("id") or "") or reclamaciones(t.get("acceso") or "")
+    return c.get("email") or c.get("cognito:username") or c.get("username")
+
+
+def perfil_actual(descifrar=None, ahora=None) -> str | None:
+    """None sin configuración o sin sesión usable; «admin» si el token trae un grupo de administración de la KB; si no, «consulta».
+    No toca la red: lee el token guardado."""
+    try:
+        cfg = config.cargar()
+    except config.ConfigIncompleta:
+        return None
+    if cfg.faltan():
+        return None
+    t = leer_tokens(descifrar)
+    if not vigente(t, ahora):
+        return None
+    return "admin" if grupos(t) & set(cfg.grupos_admin) else "consulta"
+
+
+def borrar_sesion(cognito=None, descifrar=None) -> bool:
+    """logout: revoca el token de refresco en Cognito (si se puede) y borra la sesión local del entorno."""
+    f = fichero_sesion()
+    if not f.exists():
+        return False
+    t = leer_tokens(descifrar)
+    if t and t.get("refresco"):
+        try:
+            (cognito or Cognito()).revocar(t["refresco"], config.cargar().exigir())
+        except Exception:  # noqa: BLE001 — sin red o sin configuración: se borra igual (el refresco caduca solo)
+            pass
+    f.unlink()
+    return True
+
+
+# ====================================================================== sesión con una API (conocimiento o KB)
 class Sesion:
-    def __init__(self, perfil: str, cuenta: str, *, http=None, cognito=None, cifrar=None, descifrar=None, reloj=time.time, dormir=time.sleep):
+    def __init__(self, cuenta: str = "ingesta", *, cfg=None, http=None, cognito=None, cifrar=None, descifrar=None, reloj=time.time,
+                 dormir=time.sleep):
         if cuenta not in ("ingesta", "kb"):
             raise ValueError(cuenta)
-        self.perfil, self.cuenta = perfil, cuenta
-        self.cfg = config.INGESTA if cuenta == "ingesta" else config.KB
+        self.cuenta = cuenta
+        self.cfg = (cfg or config.cargar()).exigir()
+        self.base = self.cfg.knowledge_url if cuenta == "ingesta" else self.cfg.kb_url
         self.http = http or requests.Session()
         self.cognito = cognito or Cognito()
         self.cifrar = cifrar or credenciales.dpapi_cifrar
@@ -151,15 +230,14 @@ class Sesion:
     # ---------------------------------------------------------------- tokens
     @property
     def _fichero(self):
-        if config.LOGIN_UNICO and self.cuenta == "kb":                # 24/11/2026: la KB usa la MISMA sesión que la ingesta
-            return config.carpeta() / f"sesion_{credenciales.perfil_de_cuenta('admin', 'ingesta')}_ingesta.json"
-        return config.carpeta() / f"sesion_{self.perfil}_{self.cuenta}.json"
+        return fichero_sesion()                                   # la misma sesión para las dos APIs
 
     def entrar(self, usuario: str, clave: str, pedir_codigo=None) -> dict:
         t = self.cognito.srp(usuario, clave, self.cfg, pedir_codigo)
         t["entrada"] = int(self.reloj())                          # el token de refresco dura 30 días desde aquí
         self._guardar(t)
-        return {"usuario": usuario, "caduca_en": caducidad(t["acceso"]), "renovable_hasta": t["entrada"] + REFRESCO_S}
+        return {"usuario": usuario_de(t) or usuario, "caduca_en": caducidad(t["acceso"]), "renovable_hasta": renovable_hasta(t),
+                "grupos": sorted(grupos(t))}
 
     def _guardar(self, t):
         self._t = t
@@ -168,8 +246,8 @@ class Sesion:
         except credenciales.SinCredenciales:
             pass                                                  # fuera de Windows: solo en memoria
 
-    def _cargar(self):
-        if self._t is None and self._fichero.exists():
+    def _cargar(self, releer=False):
+        if (self._t is None or releer) and self._fichero.exists():
             try:
                 self._t = json.loads(self.descifrar(self._fichero.read_bytes()).decode("utf-8"))
             except Exception:  # noqa: BLE001 — otra cuenta de Windows o fichero dañado: hay que repetir el login
@@ -180,7 +258,12 @@ class Sesion:
         t = self._cargar()
         if t and not forzar and caducidad(t["acceso"]) - 60 > self.reloj():
             return t["acceso"]
-        if t and t.get("refresco") and t.get("via") == "srp":         # las sesiones antiguas del login gestionado ya no se renuevan
+        if not forzar:                                            # otro proceso (un login nuevo, la otra API) puede haberlo renovado
+            n = self._cargar(releer=True)
+            if n and caducidad(n["acceso"]) - 60 > self.reloj():
+                return n["acceso"]
+            t = n or t
+        if t and t.get("refresco") and t.get("via") == "srp":
             try:
                 n = self.cognito.refrescar_srp(t["refresco"], self.cfg)
                 n["entrada"] = t.get("entrada")
@@ -188,21 +271,19 @@ class Sesion:
                 return n["acceso"]
             except ErrorKortex:
                 pass
-        raise SesionCaducada(f"La sesión de {self._nombre()} ha caducado o no existe (dura 30 días desde el login). "
+        raise SesionCaducada("La sesión de Kortex ha caducado o no existe (dura 30 días desde el login). "
                              f"Ejecuta en tu terminal: {_orden_login()}")
 
     def usuario(self) -> str | None:
-        t = self._cargar() or {}
-        c = reclamaciones(t.get("id") or "") or reclamaciones(t.get("acceso") or "")
-        return c.get("email") or c.get("cognito:username") or c.get("username") or credenciales.usuario(self.perfil, self.cuenta)
+        return usuario_de(self._cargar())
 
     # ---------------------------------------------------------------- HTTP
     def url(self, ruta: str) -> str:
-        return self.cfg["api"].rstrip("/") + "/" + ruta.lstrip("/")
+        return self.base.rstrip("/") + "/" + ruta.lstrip("/")
 
     def pedir(self, metodo: str, ruta: str, *, cuerpo=None, params=None, timeout=TIMEOUT, crudo=False, ruta_nueva=False):
-        """JSON de la respuesta (o el objeto Response si crudo). ruta_nueva: una 404/403 de la pasarela significa que la ruta aún no
-        está desplegada (rutas del fork A) y se dice así."""
+        """JSON de la respuesta (o el objeto Response si crudo). ruta_nueva: una 404/403 de la pasarela significa que la ruta no
+        está expuesta en ese entorno (conocimiento sin publicar) y se dice así."""
         metodo = metodo.upper()
         renovado = False
         ultimo = None
@@ -241,7 +322,7 @@ class Sesion:
         raise ultimo or ErrorKortex(f"La API de {self._nombre()} no ha respondido.")
 
     def _nombre(self):
-        return "la ingesta" if self.cuenta == "ingesta" else "la KB"
+        return "conocimiento" if self.cuenta == "ingesta" else "la KB"
 
     def _error(self, r, ruta, ruta_nueva):
         try:
@@ -263,14 +344,14 @@ class Sesion:
         if r.status_code == 401:
             return SesionCaducada(f"La API de {self._nombre()} no acepta la sesión. Ejecuta en tu terminal: {_orden_login()}", 401)
         if ruta_nueva and (r.status_code == 404 and (pasarela or not msg) or r.status_code == 403 and pasarela):
-            return RutaNoDisponible(f"La ruta {ruta.split('?')[0]} todavía no está desplegada en la API de {self._nombre()} "
-                                    "(la añade el otro trabajo en curso). Cuando esté publicada, esta herramienta funcionará sin tocar nada.",
-                                    r.status_code)
+            return RutaNoDisponible(f"La ruta {ruta.split('?')[0]} no está disponible en la API de {self._nombre()} de este entorno "
+                                    f"({self.base}): el conocimiento todavía no está publicado aquí. Cuando lo esté, esta herramienta "
+                                    "funcionará sin tocar nada.", r.status_code)
         if r.status_code == 403:
-            return ErrorKortex(msg or f"Tu usuario no tiene permiso para esto en {self._nombre()}.", 403, cod)
+            return ErrorKortex(msg or f"Tu usuario no tiene permiso para esto en la API de {self._nombre()}.", 403, cod)
         if r.status_code == 404:
             return ErrorKortex(msg or "No existe o no lo puedes ver.", 404, cod)
         if r.status_code == 413:
             return ErrorKortex(msg or "La petición es demasiado grande.", 413, cod)
-        return ErrorKortex(f"{self._nombre().capitalize()} ha respondido {r.status_code}: {msg or pasarela or 'error sin detalle'}"
+        return ErrorKortex(f"La API de {self._nombre()} ha respondido {r.status_code}: {msg or pasarela or 'error sin detalle'}"
                            + (f" ({cod})" if cod else ""), r.status_code, cod)
