@@ -69,19 +69,6 @@ def test_leer_documento_rango(sesion):
     assert not http.llamadas
 
 
-def test_chat_web_modo_agente_con_historial(sesion, tmp_path):
-    adj = tmp_path / "nota.txt"
-    adj.write_text("hola", encoding="utf-8")
-    s, http, _ = sesion("ingesta", rutas={("POST", "/chat"): Resp(200, {"status": "ANSWERED", "answer": "Se certifica en la web [1].",
-                                                                       "sources": [{"n": 1, "doc_id": "doc_a", "name": "Manual", "version": 2, "validated": True}],
-                                                                       "steps": [{"label": "Ha buscado"}], "usage": {"answer_in": 900}})})
-    out = I.preguntar_chat_web(s, "¿Cómo?", historial=[{"role": "user", "text": "hola"}], adjuntos=[str(adj)])
-    body = http.llamadas[-1]["json"]
-    assert body["question"] == "¿Cómo?" and body["mode"] == "agent" and body["messages"] == [{"role": "user", "text": "hola"}]
-    assert body["attachments"][0]["name"] == "nota.txt" and body["attachments"][0]["data"] == "aG9sYQ=="
-    assert "[1] Manual [doc_a] · v2" in out and "Ha buscado" in out
-
-
 def test_documentos_y_equipo_unico(sesion):
     s, http, _ = sesion("ingesta", rutas={("GET", "/me"): Resp(200, {"teams": [{"team_id": "T2", "name": "Equipo 2", "roles": ["reader"]}]}),
                                          ("GET", "/teams/T2/documents"): Resp(200, {"items": [{"doc_id": "d1", "name": "a.pdf", "current_version": 1}], "total": 1, "next_cursor": None})})

@@ -11,7 +11,7 @@ from mcps.kortex_mcp import server
 from mcps.kortex_mcp.conocimiento import credenciales, servidor
 
 OFICIALES = {"list_collections", "retrieve"}
-CONSULTA = {"quien_soy", "equipos_y_carpetas", "documentos", "consultar", "leer_documento", "preguntar_chat_web", "descargar_original"}
+CONSULTA = {"quien_soy", "equipos_y_carpetas", "documentos", "consultar", "leer_documento", "descargar_original"}
 ADMIN = {"operar_kb", "catalogo_kb", "buscar_hpum", "estado_kb", "buscar_entidades", "entidad", "relaciones", "por_que", "documento_en_kb", "ambito", "contexto", "metricas", "lo_nuevo_desde",
          "marcar_revision", "ficha_html", "historial", "validar", "rechazar", "corregir_tipo", "corregir_nombre", "fusionar", "mantener_separadas",
          "decidir_en_bloque", "deshacer", "exportar_decisiones", "consolidaciones", "abrir_consolidacion", "consolidacion", "cerrar_consolidacion",
@@ -47,7 +47,7 @@ def test_sin_configuracion_estado_sesion_dice_que_falta(sin_config):
 def test_perfiles_explicitos(home):
     assert _nombres(server.crear_servidor("consulta")) == OFICIALES | CONSULTA
     assert _nombres(server.crear_servidor("admin")) == OFICIALES | CONSULTA | ADMIN
-    assert len(OFICIALES | CONSULTA | ADMIN) == 55
+    assert len(OFICIALES | CONSULTA | ADMIN) == 54
     assert _nombres(server.mcp) == OFICIALES                         # el objeto de siempre, solo plano de datos
 
 

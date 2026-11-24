@@ -25,8 +25,7 @@ DESTRUCTIVA = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_
 INSTRUCCIONES = {
     "consulta": ("Kortex (consulta): responde con la documentación del equipo del usuario y, a modo de información, con el conocimiento "
                  "transversal de la KB. Usa primero «consultar»; cita los fragmentos como [n] con su documento; si hace falta más contexto, "
-                 "«leer_documento» por páginas. Lo transversal de la KB se parafrasea: no es un documento del equipo. «preguntar_chat_web» "
-                 "es el chat de la web (gasta tokens del modelo): solo para comparar respuestas."),
+                 "«leer_documento» por páginas. Lo transversal de la KB se parafrasea: no es un documento del equipo."),
     "admin": ("Kortex (admin): administra la KB servida de la campaña KORTEX. Lee con estado_kb, buscar_entidades, entidad, relaciones, "
               "por_que, documento_en_kb, ambito. TODA escritura es una decisión auditable con autor; lo masivo, lo destructivo y lo que cuesta "
               "dinero va en dos pasos: primero se previsualiza y se devuelve un código; NO confirmes por tu cuenta: enseña la "
@@ -160,22 +159,16 @@ def registrar(srv: MCPServer, perfil: str, fabrica=None) -> MCPServer:
         return I.leer_documento(c.ing, doc_id, desde, max)
 
     @herramienta(ESCRITURA)
-    def preguntar_chat_web(pregunta: str, historial: list[dict] | None = None, adjuntos: list[str] | None = None) -> str:
-        """El chat de la web (modo agente) tal cual lo ve el usuario. GASTA TOKENS del modelo en Bedrock: úsalo solo para comparar con
-        tu respuesta. historial: [{role: user|assistant, text}]; adjuntos: rutas de ficheros locales."""
-        return I.preguntar_chat_web(c.ing, pregunta, historial, adjuntos)
-
-    @herramienta(ESCRITURA)
     def descargar_original(doc_id: str, version: int | None = None, carpeta: str | None = None) -> str:
         """Descarga el fichero original (versión aprobada actual o la indicada) a Descargas\\kortex o a la carpeta dada."""
         return I.descargar_original(c.ing, doc_id, version, carpeta)
 
-    @srv.prompt(name="contrastar_con_mi_contexto", description="Contrasta lo que dice tu documentación con el conocimiento transversal de la KB y con el chat de la web.")
+    @srv.prompt(name="contrastar_con_mi_contexto", description="Contrasta lo que dice tu documentación con el conocimiento transversal de la KB.")
     def contrastar(tema: str) -> str:
         return (f"Tema: «{tema}».\n1. Llama a consultar(pregunta=…) con el tema. 2. Resume lo que dice la documentación del equipo citando [n] y "
                 "documento; si un fragmento es corto, usa leer_documento para el contexto. 3. Aparte, resume lo que aporta la KB transversal "
-                "(parafraseado, sin atribuirlo a documentos del equipo) y señala coincidencias, huecos y contradicciones. 4. Solo si te lo "
-                "pido, compara con preguntar_chat_web (gasta tokens). Termina con qué falta documentar.")
+                "(parafraseado, sin atribuirlo a documentos del equipo) y señala coincidencias, huecos y contradicciones. Termina con qué "
+                "falta documentar.")
 
     if perfil == "consulta":
         return srv

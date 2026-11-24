@@ -211,40 +211,6 @@ def leer_documento(s, doc_id, desde=0, max=None) -> str:  # noqa: A002 — mismo
 
 
 # ---------------------------------------------------------------------- el chat de la web (para comparar)
-def preguntar_chat_web(s, pregunta, historial=None, adjuntos=None) -> str:
-    cuerpo = {"question": pregunta, "mode": "agent"}
-    if historial:
-        cuerpo["messages"] = [{"role": m.get("role"), "text": m.get("text") or m.get("content") or ""} for m in historial if isinstance(m, dict)]
-    if adjuntos:
-        lista, total = [], 0
-        for ruta in adjuntos:
-            p = Path(ruta).expanduser()
-            if not p.is_file():
-                raise ErrorKortex(f"No encuentro el adjunto «{ruta}».")
-            datos = p.read_bytes()
-            total += len(datos)
-            if total > MAX_ADJUNTOS_MB * 1024 * 1024:
-                raise ErrorKortex(f"Los adjuntos pasan de {MAX_ADJUNTOS_MB} MB.")
-            lista.append({"name": p.name, "data": base64.b64encode(datos).decode("ascii")})
-        cuerpo["attachments"] = lista
-    r = s.pedir("POST", "chat", cuerpo=cuerpo)
-    out = [f"Respuesta del chat de la web ({r.get('status') or '—'}):", str(r.get("answer") or "").strip()]
-    fuentes = r.get("sources") or []
-    if fuentes:
-        out.append("\nFuentes:")
-        for f in fuentes:
-            out.append(f"[{f.get('n')}] {f.get('name')} [{f.get('doc_id')}]" + (f" · v{f['version']}" if f.get("version") else "")
-                       + ("" if f.get("validated", True) else " · sin validar"))
-    pasos = [x.get("label") for x in r.get("steps") or [] if x.get("label")]
-    if pasos:
-        out.append("\nPasos del agente: " + " → ".join(pasos))
-    u = r.get("usage") or {}
-    if u:
-        out.append("Consumo: " + ", ".join(f"{k}={v}" for k, v in u.items() if v not in (None, False, 0)))
-    return "\n".join(out)
-
-
-# ---------------------------------------------------------------------- el original
 def descargar_original(s, doc_id, version=None, carpeta=None) -> str:
     d = s.pedir("GET", f"documents/{doc_id}")
     n = int(version or d.get("current_version") or 0)

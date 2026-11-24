@@ -11,7 +11,7 @@ and, depending on the knowledge login (`kortex-mcp login`: Cognito SRP + TOTP, c
 mcp-local, tokens encrypted with DPAPI), the knowledge tools of mcps/kortex_mcp/conocimiento:
 
   no session        — estado_sesion (explains how to log in)
-  any user          — 7 query tools over the user's ingested documentation (+ KB context)
+  any user          — 6 query tools over the user's ingested documentation (+ KB context)
   group kb-admin    — those 7 plus the KB administration tools
 
 Configuration (environment variables, or %USERPROFILE%\\.kortex\\config.json):

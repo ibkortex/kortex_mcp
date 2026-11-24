@@ -56,7 +56,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\distribucion\instalar.ps1 
 Pregunta antes si quiere que arranque solo al iniciar Windows; si dice que sí, añade `-AlIniciarWindows`. Si no, tendrá que lanzar
 `distribucion\arrancar.ps1` después de cada reinicio.
 
-Resultado esperado: «✓ http://127.0.0.1:8765/mcp: 9 herramientas» (consulta) o «… 55 herramientas» (administración de la KB),
+Resultado esperado: «✓ http://127.0.0.1:8765/mcp: 8 herramientas» (consulta) o «… 54 herramientas» (administración de la KB),
 seguido de `quien_soy` con su usuario y su equipo, y «LISTO». Errores:
 - `FALTA_LOGIN`: el paso 2 no se hizo o no terminó bien; que lo repita.
 - Otro error: muéstrale las últimas líneas de `%USERPROFILE%\.kortex\mcp_kortex.log` (no contienen secretos).
@@ -64,7 +64,6 @@ seguido de `quien_soy` con su usuario y su equipo, y «LISTO». Errores:
 **Paso 4 · Cierre.** Dile que abra una **sesión nueva** de Claude Code (en esta no aparecerán las herramientas) y que pruebe, por
 ejemplo: «Con kortex, ¿qué documentos tengo y de qué tratan?». Explícale en dos líneas:
 - `consultar` busca en su documentación y añade lo que sabe la KB como contexto (no gasta modelo);
-- `preguntar_chat_web` usa el chat de la web (gasta, es para comparar);
 - la sesión dura 30 días desde el login: cuando caduque, la herramienta lo dirá; que repita el paso 2 en su terminal con un código
   nuevo (no hace falta reiniciar el servidor si ya tenía las herramientas).
 

@@ -188,8 +188,8 @@ The server adds the knowledge tools of `mcps/kortex_mcp/conocimiento` according 
 | Session | Tools registered |
 |---|---|
 | none (or expired, or not configured) | `list_collections`, `retrieve` and `estado_sesion` (tells the user how to log in) |
-| any user | the two above + 7 query tools |
-| user in the Cognito group `kb-admin` | the two above + 7 query tools + 46 KB administration tools |
+| any user | the two above + 6 query tools |
+| user in the Cognito group `kb-admin` | the two above + 6 query tools + 46 KB administration tools |
 
 The profile only decides which tools are shown. Every call is authorized by the Kortex API with the user's own token (grants,
 groups): an administration tool used without the right permissions gets a 403.
@@ -204,7 +204,6 @@ groups): an administration tool used without the right permissions gets a 403.
 | `consultar` | Retrieval without model cost: numbered fragments `[n]` with `doc_id` from the user's documentation, plus what the KB knows (cross-team knowledge, paraphrased, never quoted as a team document) |
 | `leer_documento` | Document text by segments (paginated) |
 | `descargar_original` | Downloads the original file (current approved version or a given one) |
-| `preguntar_chat_web` | The ingestion web chat in agent mode (spends model tokens; for comparison only) |
 
 Prompt: `contrastar_con_mi_contexto`.
 
