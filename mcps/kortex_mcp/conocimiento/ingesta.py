@@ -153,7 +153,12 @@ def consultar(s, pregunta, colecciones=None, k=None, kb=True, notas=True) -> str
     kbd = r.get("kb") or {}
     ents, rels, trans = kbd.get("entidades") or [], kbd.get("relaciones") or [], kbd.get("transversal") or []
     temas = kbd.get("temas_transversales") or []
+    # Notas: el contrato es kb.notas_transversales ({nota, tema?, uso}). Mientras dure la sincronización con la PoC se aceptan también
+    # las de su forma antigua, dentro de kb.transversal con clase «nota» ({texto, tema?, uso}), y no se repiten abajo.
     notas = [n for n in kbd.get("notas_transversales") or [] if (n.get("nota") if isinstance(n, dict) else n)]
+    notas += [{"nota": t.get("texto"), "tema": t.get("tema"), "uso": t.get("uso")} for t in trans
+              if isinstance(t, dict) and t.get("clase") == "nota" and t.get("texto")]
+    trans = [t for t in trans if not (isinstance(t, dict) and t.get("clase") == "nota")]
     if ents or rels or trans or temas or notas:
         out.append("\n## Conocimiento transversal de la KB (a modo de información; no es documentación de tu equipo:"
                    " parafrasea, no lo cites como si fuera un documento)")
@@ -163,9 +168,12 @@ def consultar(s, pregunta, colecciones=None, k=None, kb=True, notas=True) -> str
     if notas:                                                   # fragmentos de otros equipos, ya redactados por Kortex (sin origen)
         out.append("Notas de otras fuentes de Kortex (redactadas por Kortex; sin documento ni equipo de origen):")
         for n in notas:
-            out.append("- [nota] " + _r(n.get("nota") if isinstance(n, dict) else n, 400))
+            tema = n.get("tema") if isinstance(n, dict) else None
+            out.append("- [nota] " + (f"{_r(tema, 80)}: " if tema else "") + _r(n.get("nota") if isinstance(n, dict) else n, 400))
             if isinstance(n, dict) and n.get("uso"):
                 usos.add(str(n["uso"]))
+        out.append("Cómo usar las notas: es lo que Kortex sabe por otros equipos. Explícalo con tus palabras, sin citarlo literalmente "
+                   "ni atribuirlo a documentos, equipos o personas; solo los fragmentos [n] se citan con su documento.")
     for e in ents:
         extra = " · ".join(x for x in (", ".join(e.get("ambitos") or []), "HPUM: " + "; ".join(e["procesos_hpum"][:3]) if e.get("procesos_hpum") else "") if x)
         out.append(f"- {e.get('nombre')} [{e.get('tipo')}] ({e.get('id')})" + (f" · {extra}" if extra else ""))

@@ -75,7 +75,9 @@ def app_local(srv, puerto: int = PUERTO):
     from mcp.server.transport_security import TransportSecuritySettings
     hosts, origenes = anfitriones(puerto)
     seguridad = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=sorted(hosts), allowed_origins=sorted(origenes))
-    app = srv.streamable_http_app(host="127.0.0.1", transport_security=seguridad)
+    # Sin sesión (PoC 5624e58, sincronizado el 26/11/2026): cada petición vale sola, así que cuando el servidor se reinicia (por ejemplo
+    # tras «kortex-mcp login») Claude sigue sin tener que reconectar
+    app = srv.streamable_http_app(host="127.0.0.1", transport_security=seguridad, stateless_http=True, json_response=True)
     return _ExigeFicha(app, ficha_local(), puerto)
 
 

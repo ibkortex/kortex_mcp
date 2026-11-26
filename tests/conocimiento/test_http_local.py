@@ -60,5 +60,6 @@ def test_app_local_tambien_configura_el_sdk(tmp_path, monkeypatch):
     app = H.app_local(Srv(), 8790)
     seg = capturado["transport_security"]
     assert capturado["host"] == "127.0.0.1" and seg.enable_dns_rebinding_protection
+    assert capturado["stateless_http"] is True and capturado["json_response"] is True     # sin sesión: un reinicio no corta a Claude
     assert set(seg.allowed_hosts) == {"127.0.0.1:8790", "localhost:8790", "[::1]:8790"}
     assert isinstance(app, H._ExigeFicha) and app.app == "app"

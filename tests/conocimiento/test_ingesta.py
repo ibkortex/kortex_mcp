@@ -47,6 +47,22 @@ def test_consultar_notas_transversales_y_sin_notas(sesion):
     assert http.llamadas[-1]["json"] == {"pregunta": "¿Cómo se certifica una OT?", "notas": False}
 
 
+def test_consultar_lee_las_notas_con_tema_y_en_la_forma_antigua_de_la_poc(sesion):
+    """Sincronización con la PoC (26/11/2026): el servidor puede traer las notas en kb.notas_transversales (con «tema» opcional) o, en
+    su forma antigua, dentro de kb.transversal con clase «nota». Las dos salen igual y la antigua no se repite como elemento suelto."""
+    uso = "Conocimiento de contexto: parafrasear, no citable ni atribuible a un documento"
+    r = {"pregunta": "¿Quién gestiona las remesas?", "documentos_consultados": 0, "fragmentos": [],
+         "kb": {"entidades": [], "relaciones": [], "temas_transversales": [],
+                "notas_transversales": [{"tema": "Remesas de cobro", "nota": "Las gestiona un sistema propio de cobros.", "uso": uso}],
+                "transversal": [{"clase": "nota", "tema": "Cierre", "texto": "El cierre se concilia con el banco cada trimestre.", "uso": uso}]}}
+    s, _, _ = sesion("ingesta", rutas={("POST", "/consulta"): Resp(200, r)})
+    out = I.consultar(s, "¿Quién gestiona las remesas?")
+    assert "- [nota] Remesas de cobro: Las gestiona un sistema propio de cobros." in out
+    assert "- [nota] Cierre: El cierre se concilia con el banco cada trimestre." in out
+    assert out.count("[nota]") == 2 and "[nota] · " not in out and "Cómo usar las notas" in out
+    assert "No hay nada relevante" not in out
+
+
 def test_consultar_sin_kb_y_panorama(sesion):
     r = {"pregunta": "¿Qué información tienes?", "documentos_consultados": 3, "fragmentos": [], "kb": {},
          "panorama": {"texto": "Tienes 3 documentos de Obras.", "documentos": [{"doc_id": "doc_a", "documento": "Manual SIGMA.docx", "carpeta": "Obras"}]}}
